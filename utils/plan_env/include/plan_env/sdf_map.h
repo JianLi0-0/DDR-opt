@@ -93,6 +93,18 @@ class SDFmap
     bool hrz_limited_;
     double hrz_laser_range_dgr_;
 
+    // New dynamic local map members
+    bool dynamic_local_map_ = true;          // enable sliding local map
+    double local_map_size_m_ = 10.0;         // side length (square map) in meters
+    double half_size_m_ = 5.0;               // cached half size
+    double recentering_margin_m_ = 2.0;      // margin before recentring (robot can move this close to edge)
+    bool unknown_as_obstacle_ = false;        // treat unknown as obstacle in ESDF negative pass
+    Eigen::Vector2d map_origin_world_{0.0, 0.0}; // lower-left origin of current local map in world frame
+    bool map_origin_initialized_ = false;    // flag indicates first initialization based on odom
+    // Ring buffer offsets (physical start indices for logical (0,0))
+    int buf_start_x_ = 0;
+    int buf_start_y_ = 0;
+
   public:
 
     enum {Unknown, Unoccupied, Occupied};
@@ -133,34 +145,43 @@ class SDFmap
       // odom_sub_ = nh_.subscribe<carstatemsgs::CarState>("/odom", 1, &SDFmap::odomCallback, this);
 
       nh_.param<double>(ros::this_node::getName()+"/detection_range",detection_range_,5.0);
-      
+      // Global params (will be overridden if dynamic local map enabled)
       nh_.param<double>(ros::this_node::getName()+"/global_x_lower",global_x_lower_, -10);
       nh_.param<double>(ros::this_node::getName()+"/global_x_upper",global_x_upper_, 10);
       nh_.param<double>(ros::this_node::getName()+"/global_y_lower",global_y_lower_, -10);
       nh_.param<double>(ros::this_node::getName()+"/global_y_upper",global_y_upper_, 10);
-
-      nh_.param<bool>(ros::this_node::getName()+"/if_perspective",if_perspective_,false);
-      // std::cout<<"if_perspective: "<<if_perspective_<<std::endl;
-
-      nh_.param<bool>(ros::this_node::getName()+"/if_cirSupRaycast", if_cirSupRaycast_, false);
-
-      nh_.param<bool>(ros::this_node::getName()+"/hrz_limited",hrz_limited_,false);
-      nh_.param<double>(ros::this_node::getName()+"/hrz_laser_range_dgr",hrz_laser_range_dgr_,360.0);
-      hrz_laser_range_dgr_ = hrz_laser_range_dgr_ / 180.0 * M_PI ;
-    
-      
-      // init map
+      // Dynamic local map params
+      nh_.param<bool>(ros::this_node::getName()+"/dynamic_local_map", dynamic_local_map_, true);
+      nh_.param<double>(ros::this_node::getName()+"/local_map_size_m", local_map_size_m_, 10.0);
+      nh_.param<double>(ros::this_node::getName()+"/recentering_margin_m", recentering_margin_m_, 2.0);
+      nh_.param<bool>(ros::this_node::getName()+"/unknown_as_obstacle", unknown_as_obstacle_, false);
+      half_size_m_ = local_map_size_m_ / 2.0;
+      // If dynamic, override global bounds to an initial 10x10 window around origin (will move once odom received)
+      if(dynamic_local_map_){
+        global_x_lower_ = map_origin_world_.x();
+        global_x_upper_ = map_origin_world_.x() + local_map_size_m_;
+        global_y_lower_ = map_origin_world_.y();
+        global_y_upper_ = map_origin_world_.y() + local_map_size_m_;
+        ROS_WARN("global map limits overridden for dynamic local map: x:[%.2f, %.2f], y:[%.2f, %.2f]", global_x_lower_, global_x_upper_, global_y_lower_, global_y_upper_);
+        ROS_WARN("dynamic local map enabled: size %.2f m, recentering margin %.2f m", local_map_size_m_, recentering_margin_m_);
+      }
+      // init map sizes strictly from local_map_size_m_ if dynamic
       GLX_SIZE_ = ceil((global_x_upper_ - global_x_lower_) / grid_interval_);
       GLY_SIZE_ = ceil((global_y_upper_ - global_y_lower_) / grid_interval_);
       GLXY_SIZE_ = GLX_SIZE_ * GLY_SIZE_;
       EIXY_SIZE_ << GLX_SIZE_, GLY_SIZE_;
       gridmap_ = new uint8_t[GLXY_SIZE_];
       memset(gridmap_, Unknown, GLXY_SIZE_ * sizeof(uint8_t));
-
       distance_buffer_all_ = std::vector<double>(GLXY_SIZE_, std::numeric_limits<double>::max());
-
-      X_SIZE_ = ceil(detection_range_ / grid_interval_) * 2;
-      Y_SIZE_ = ceil(detection_range_ / grid_interval_) * 2;
+      // Local processing size kept from detection_range_ (could be half_size_m_ for dynamic)
+      if(dynamic_local_map_) {
+        detection_range_ = half_size_m_; // unify detection range with map half size
+        X_SIZE_ = GLX_SIZE_;
+        Y_SIZE_ = GLY_SIZE_;
+      } else {
+        X_SIZE_ = ceil(detection_range_ / grid_interval_) * 2;
+        Y_SIZE_ = ceil(detection_range_ / grid_interval_) * 2;
+      }
       XY_SIZE_ = X_SIZE_ * Y_SIZE_;
 
       // Occupancy grid map
@@ -209,7 +230,7 @@ class SDFmap
     Eigen::Vector2i coord2gridIndex(const Eigen::Vector2d &pt);
     void setObs(const Eigen::Vector3d coord);
     void setObs(const Eigen::Vector2d coord);
-    Eigen::Vector2i vectornum2gridIndex(const int &num);
+    Eigen::Vector2i vectornum2gridIndex(const int &num); // now returns logical index
     int Index2Vectornum(const int &x, const int &y);
     int Index2Vectornum(const Eigen::Vector2i &index);
     inline void grid_insertbox(Eigen::Vector3d location,Eigen::Matrix3d euler,Eigen::Vector3d size);
@@ -233,6 +254,7 @@ class SDFmap
 
     // visualization
     void publish_gridmap();
+    void publishLocalBounds();
 
     // for ESDF
     void updateESDF2d();
@@ -256,6 +278,11 @@ class SDFmap
 
     inline double normalize_angle(double angle);
 
+    // New dynamic local map API
+    void slideWindowIfNeeded();
+    inline Eigen::Vector2i worldToMap(const Eigen::Vector2d &pt) { return coord2gridIndex(pt); }
+    inline Eigen::Vector2d mapToWorld(const Eigen::Vector2i &idx) { return gridIndex2coordd(idx); }
+    Eigen::Vector4d getLocalBounds() const { return Eigen::Vector4d(global_x_lower_, global_x_upper_, global_y_lower_, global_y_upper_); }
 };
 
 
