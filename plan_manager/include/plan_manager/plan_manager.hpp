@@ -84,7 +84,7 @@ class PlanManager
       msplanner_ = std::make_shared<MSPlanner>(Config(ros::NodeHandle("~")), nh_, sdfmap_);
       jps_planner_ = std::make_shared<JPS::JPSPlanner>(sdfmap_, nh_);
 
-      goal_sub_ = nh_.subscribe<geometry_msgs::PoseStamped>("/move_base_simple/goal",1,&PlanManager::goal_callback,this);
+      goal_sub_ = nh_.subscribe<geometry_msgs::PointStamped>("/clicked_point",1,&PlanManager::goal_callback,this);
       // current_state_sub_ = nh_.subscribe<carstatemsgs::CarState>("/simulation/PosePub",1,&PlanManager::GeometryCallback,this);
       current_state_sub_ = nh_.subscribe<nav_msgs::Odometry>("odom",1,&PlanManager::GeometryCallback,this);
       main_thread_timer_ = nh_.createTimer(ros::Duration(0.001),&PlanManager::MainThread, this);
@@ -143,21 +143,24 @@ class PlanManager
     }
 
 
-    void goal_callback(const geometry_msgs::PoseStamped::ConstPtr &msg){
+    void goal_callback(const geometry_msgs::PointStamped::ConstPtr &msg){
       // Ignore the given goal at runtime, commenting out this check may cause unexpected bugs
       // Especially when there is no re-planning
       if(state_machine_ != StateMachine::IDLE){
-        ROS_ERROR("Haven't reached the goal yet!!");
-        return;
+        state_machine_ = StateMachine::REPLAN;
+      }
+      else {
+        state_machine_ = StateMachine::IDLE;
       }
       ROS_INFO("\n\n\n\n\n\n\n\n");
       ROS_INFO("---------------------------------------------------------------");
       ROS_INFO("---------------------------------------------------------------");
 
       ROS_INFO("get goal!");
-      state_machine_ = StateMachine::IDLE;
+
       have_goal_ = true;
-      goal_state_<<msg->pose.position.x, msg->pose.position.y, tf::getYaw(msg->pose.orientation);
+      double atan2_yx = atan2(msg->point.y - current_state_XYTheta_.y(), msg->point.x - current_state_XYTheta_.x());
+      goal_state_<<msg->point.x, msg->point.y, atan2_yx;
       if(if_fix_final_) goal_state_ = final_state_;
       ROS_INFO_STREAM("goal state: " << goal_state_.transpose());
 
@@ -183,6 +186,10 @@ class PlanManager
           ROS_ERROR("EMERGENCY_STOP!!! too close to obstacle!!!");
           return;
         }
+      }
+
+      if (state_machine_ == StateMachine::PLANNING) {
+        state_machine_ == StateMachine::REPLAN;
       }
       
       if(state_machine_ == StateMachine::IDLE || 
@@ -320,7 +327,7 @@ class PlanManager
       }
 
       jps_planner_->plan(start_state, goal_state_);
-      
+
       jps_planner_->getKinoNodeWithStartPath(start_path, if_forward, plan_start_state_VAJ, plan_start_state_OAJ);
 
 

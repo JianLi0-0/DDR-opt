@@ -127,7 +127,7 @@
     <!-- 1: Read map from yaml file -->
     <!-- 2: Random obstacles -->
     <!-- 3: Get obstacles from png -->
-    <param name="Map_input_method" value="1"/>
+    <param name="Map_input_method" value="3"/>
     <param name="if_boundary_wall" value="true"/>
     <!-- gridmap cell size -->
     <param name="gridmap_interval" value="$(arg gridmap_interval_)"/>
@@ -135,7 +135,7 @@
     <param name="laser_gridmap_interval" value="$(arg gridmap_interval_)"/>
     <!-- Read map parameters from yaml file -->
     <!-- Map file name -->
-    <rosparam file="$(find plan_env)/config/obs5.yaml" command="load"/>
+<!--     <rosparam file="$(find plan_env)/config/obs5.yaml" command="load"/> -->
     <!-- Random obstacles -->
     <!-- Map file name -->
     <param name="start_x" value="$(arg start_x_)"/>
@@ -151,9 +151,9 @@
     <param name="Random/obstacle_box/length" value="0.8"/>
     <param name="Random/obstacle_box/safe_dis" value="2.0"/>
     <!-- Get obstacles from png -->
-    <param name="Png/file_path" value="$(find plan_env)/config/obs.png"/>
-    <param name="Png/x_lower" value="-5.0"/>
-    <param name="Png/y_lower" value="-5.0"/>
+    <param name="Png/file_path" value="$(find plan_env)/config/corridor.png"/>
+    <param name="Png/x_lower" value="-17.0"/>
+    <param name="Png/y_lower" value="-17.0"/>
   </node>
 
   <group if="$(arg if_perspective_)">
