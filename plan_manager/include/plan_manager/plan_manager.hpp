@@ -338,8 +338,8 @@ class PlanManager
       marker.id = 0;
       marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
       marker.action = visualization_msgs::Marker::ADD;
-      marker.pose.position.x = 11;
-      marker.pose.position.y = 8;
+      marker.pose.position.x = current_state_XYTheta_.x() + 5;
+      marker.pose.position.y = current_state_XYTheta_.y() + 5;
       marker.pose.position.z = 0;
       marker.pose.orientation.x = 0.0;
       marker.pose.orientation.y = 0.0;

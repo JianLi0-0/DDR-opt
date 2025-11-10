@@ -312,8 +312,8 @@ bool MSPlanner::optimizer(){
     marker.id = 0;
     marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
     marker.action = visualization_msgs::Marker::ADD;
-    marker.pose.position.x = 11.5;
-    marker.pose.position.y = 7;
+    marker.pose.position.x = iniStateXYTheta.x() + 5;
+    marker.pose.position.y = iniStateXYTheta.y() + 4;
     marker.pose.position.z = 0;
     marker.pose.orientation.x = 0.0;
     marker.pose.orientation.y = 0.0;
@@ -420,8 +420,8 @@ bool MSPlanner::optimizer(){
     marker.id = 0;
     marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
     marker.action = visualization_msgs::Marker::ADD;
-    marker.pose.position.x = 11.5;
-    marker.pose.position.y = 6;
+    marker.pose.position.x = iniStateXYTheta.x() + 5;
+    marker.pose.position.y = iniStateXYTheta.y() + 3;
     marker.pose.position.z = 0;
     marker.pose.orientation.x = 0.0;
     marker.pose.orientation.y = 0.0;
