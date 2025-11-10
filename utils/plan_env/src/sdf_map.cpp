@@ -38,6 +38,8 @@ void SDFmap::pointCloudCallback(const sensor_msgs::PointCloud2::ConstPtr &msg){
 void SDFmap::updateOccupancyCallback(const ros::TimerEvent& /*event*/){
   if(!occ_need_update_) return;
 
+  auto start_time = ros::Time::now();
+
   if(!if_perspective_){
     ros::Time t1, t2;
     t1 = ros::Time::now();
@@ -130,6 +132,7 @@ void SDFmap::updateOccupancyCallback(const ros::TimerEvent& /*event*/){
   has_map_ = true;
   esdf_need_update_ = true;
   occ_need_update_ = false;
+  ROS_WARN("Occupancy map updated, time: %f ms", (ros::Time::now() - start_time).toSec()*1000.0);
 }
 
 void SDFmap::raycastProcess(){

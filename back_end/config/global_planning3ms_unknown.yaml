@@ -57,7 +57,7 @@ EqualLambda:                [0, 0]
 EqualRho:                   [1000.00, 1000.0]      # Initial value
 EqualRhoMax:                [1.0e+10, 1.0e+10]    # Maximum value
 EqualGamma:                 [90.0, 90.0]           # Growth rate
-EqualTolerance:             [0.01, 0.0]          # Maximum error
+EqualTolerance:             [0.6, 0.3]          # Maximum error
 
 # Augmented Lagrangian equality constraints: final_x final_y
 CutEqualLambda:             [0, 0]
@@ -65,7 +65,7 @@ CutEqualLambda:             [0, 0]
 CutEqualRho:                [1000.00, 1000.0]      # Initial value
 CutEqualRhoMax:             [1.0e+10, 1.0e+10]    # Maximum value
 CutEqualGamma:              [5.0, 5.0]       # Growth rate
-CutEqualTolerance:          [0.5, 0.0]      # Maximum error
+CutEqualTolerance:          [0.6, 0.3]      # Maximum error
 
 # Penalty term sampling times and integration interval number
 sparseResolution:           8

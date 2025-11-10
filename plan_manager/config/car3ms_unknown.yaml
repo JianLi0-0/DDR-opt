@@ -20,4 +20,5 @@ max_centripetal_acc:            50
 
 # Collision checkpoint
 # Single point
-checkpoint:   [0.0, 0.0]
+checkpoint: [  0.2,  0.0,
+              -0.2,  0.0 ]
