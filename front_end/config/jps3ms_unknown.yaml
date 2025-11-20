@@ -1,5 +1,5 @@
 # Safe distance
-jps_safe_dis:                           0.01
+jps_safe_dis:                           0.2
 
 # Maximum distance given by the front end
 max_jps_dis:                            120

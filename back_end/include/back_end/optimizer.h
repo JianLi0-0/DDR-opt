@@ -190,7 +190,7 @@ private:
     bool if_visual_optimization_ = false;
 
 public:
-
+    bool is_first_plan_ = true;
     // Results
     Trajectory<5, 2> final_traj_;
     // Results before collision check

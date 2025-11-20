@@ -87,7 +87,7 @@ class PlanManager
       goal_sub_ = nh_.subscribe<geometry_msgs::PointStamped>("/clicked_point",1,&PlanManager::goal_callback,this);
       // current_state_sub_ = nh_.subscribe<carstatemsgs::CarState>("/simulation/PosePub",1,&PlanManager::GeometryCallback,this);
       current_state_sub_ = nh_.subscribe<nav_msgs::Odometry>("odom",1,&PlanManager::GeometryCallback,this);
-      main_thread_timer_ = nh_.createTimer(ros::Duration(0.001),&PlanManager::MainThread, this);
+      main_thread_timer_ = nh_.createTimer(ros::Duration(0.1),&PlanManager::MainThread, this);
       cmd_pub_ = nh_.advertise<carstatemsgs::CarState>("/simulation/PoseSub",1);
       emergency_stop_pub_ = nh_.advertise<std_msgs::Bool>("/planner/emergency_stop",1);
 
@@ -174,78 +174,46 @@ class PlanManager
       
       if(!have_geometry_ || !have_goal_) return;
 
-      // collision check
-      if(have_geometry_){
-        if(sdfmap_->getDistanceReal(Eigen::Vector2d(current_state_XYTheta_.x(), current_state_XYTheta_.y())) < 0.0){
-          std_msgs::Bool emergency_stop;
-          emergency_stop.data = true;
-          emergency_stop_pub_.publish(emergency_stop);
-          state_machine_ = EMERGENCY_STOP;
-          ROS_INFO_STREAM("current_state_XYTheta_: " << current_state_XYTheta_.transpose());
-          ROS_INFO_STREAM("Dis: " << sdfmap_->getDistanceReal(Eigen::Vector2d(current_state_XYTheta_.x(), current_state_XYTheta_.y())));
-          ROS_ERROR("EMERGENCY_STOP!!! too close to obstacle!!!");
-          return;
-        }
+      double current = ros::Time::now().toSec();
+      if (msplanner_->is_first_plan_) {
+        msplanner_->is_first_plan_ = false;
+        plan_start_time_ = -1;
+        predicted_traj_start_time_ = -1;
+        plan_start_state_XYTheta = current_state_XYTheta_;
+        plan_start_state_VAJ = current_state_VAJ_;
+        plan_start_state_OAJ = current_state_OAJ_;
+      }
+      else {
+        predicted_traj_start_time_ = current + max_replan_time_ - plan_start_time_;
+        msplanner_->get_the_predicted_state(predicted_traj_start_time_, plan_start_state_XYTheta, plan_start_state_VAJ, plan_start_state_OAJ);
       }
 
-      if (state_machine_ == StateMachine::PLANNING) {
-        state_machine_ == StateMachine::REPLAN;
-      }
-      
-      if(state_machine_ == StateMachine::IDLE || 
-          ((state_machine_ == StateMachine::PLANNING||state_machine_ == StateMachine::REPLAN) 
-            && (ros::Time::now() - loop_start_time_).toSec() > replan_time_)){
-        loop_start_time_ = ros::Time::now();
-        double current = loop_start_time_.toSec();
-        // start new plan
-        if(state_machine_ == StateMachine::IDLE){
-          state_machine_ = StateMachine::PLANNING;
-          plan_start_time_ = -1;
-          predicted_traj_start_time_ = -1;
-          plan_start_state_XYTheta = current_state_XYTheta_;
-          plan_start_state_VAJ = current_state_VAJ_;
-          plan_start_state_OAJ = current_state_OAJ_;
-        } 
-        // Use predicted distance for replanning in planning state
-        else if(state_machine_ == StateMachine::PLANNING || state_machine_ == StateMachine::REPLAN){
-          
-          if(((current_state_XYTheta_ - goal_state_).head(2).squaredNorm() + fmod(fabs((plan_start_state_XYTheta - goal_state_)[2]), 2.0 * M_PI)*0.02 < 1.0) ||
-             msplanner_->final_traj_.getTotalDuration() < max_replan_time_){
-            state_machine_ = StateMachine::GOINGTOGOAL;
-            return;
-          }
-
-          state_machine_ = StateMachine::REPLAN;
-
-          predicted_traj_start_time_ = current + max_replan_time_ - plan_start_time_;
-          msplanner_->get_the_predicted_state(predicted_traj_start_time_, plan_start_state_XYTheta, plan_start_state_VAJ, plan_start_state_OAJ);
-
-        } 
-        
         ROS_INFO("\033[32;40m \n\n\n\n\n-------------------------------------start new plan------------------------------------------ \033[0m");
         
         visualizer_->finalnodePub(plan_start_state_XYTheta, goal_state_);
-        ROS_INFO("init_state_: %.10f  %.10f  %.10f", plan_start_state_XYTheta(0), plan_start_state_XYTheta(1), plan_start_state_XYTheta(2));
-        ROS_INFO("goal_state_: %.10f  %.10f  %.10f", goal_state_(0), goal_state_(1), goal_state_(2));
-        std::cout<<"<arg name=\"start_x_\" value=\""<< plan_start_state_XYTheta(0) <<"\"/>"<<std::endl;
-        std::cout<<"<arg name=\"start_y_\" value=\""<< plan_start_state_XYTheta(1) <<"\"/>"<<std::endl;
-        std::cout<<"<arg name=\"start_yaw_\" value=\""<< plan_start_state_XYTheta(2) <<"\"/>"<<std::endl;
-        std::cout<<"<arg name=\"final_x_\" value=\""<< goal_state_(0) <<"\"/>"<<std::endl;
-        std::cout<<"<arg name=\"final_y_\" value=\""<< goal_state_(1) <<"\"/>"<<std::endl;
-        std::cout<<"<arg name=\"final_yaw_\" value=\""<< goal_state_(2) <<"\"/>"<<std::endl;
-
-        std::cout<<"plan_start_state_VAJ: "<<plan_start_state_VAJ.transpose()<<std::endl;
-        std::cout<<"plan_start_state_OAJ: "<<plan_start_state_OAJ.transpose()<<std::endl;
-
-        ROS_INFO("<arg name=\"start_x_\" value=\"%f\"/>", plan_start_state_XYTheta(0));
-        ROS_INFO("<arg name=\"start_y_\" value=\"%f\"/>", plan_start_state_XYTheta(1));
-        ROS_INFO("<arg name=\"start_yaw_\" value=\"%f\"/>", plan_start_state_XYTheta(2));
-        ROS_INFO("<arg name=\"final_x_\" value=\"%f\"/>", goal_state_(0));
-        ROS_INFO("<arg name=\"final_y_\" value=\"%f\"/>", goal_state_(1));
-        ROS_INFO("<arg name=\"final_yaw_\" value=\"%f\"/>", goal_state_(2));
-
-        ROS_INFO_STREAM("plan_start_state_VAJ: " << plan_start_state_VAJ.transpose());
-        ROS_INFO_STREAM("plan_start_state_OAJ: " << plan_start_state_OAJ.transpose());
+        // {
+        //   ROS_INFO("init_state_: %.10f  %.10f  %.10f", plan_start_state_XYTheta(0), plan_start_state_XYTheta(1), plan_start_state_XYTheta(2));
+        //   ROS_INFO("goal_state_: %.10f  %.10f  %.10f", goal_state_(0), goal_state_(1), goal_state_(2));
+        //   std::cout<<"<arg name=\"start_x_\" value=\""<< plan_start_state_XYTheta(0) <<"\"/>"<<std::endl;
+        //   std::cout<<"<arg name=\"start_y_\" value=\""<< plan_start_state_XYTheta(1) <<"\"/>"<<std::endl;
+        //   std::cout<<"<arg name=\"start_yaw_\" value=\""<< plan_start_state_XYTheta(2) <<"\"/>"<<std::endl;
+        //   std::cout<<"<arg name=\"final_x_\" value=\""<< goal_state_(0) <<"\"/>"<<std::endl;
+        //   std::cout<<"<arg name=\"final_y_\" value=\""<< goal_state_(1) <<"\"/>"<<std::endl;
+        //   std::cout<<"<arg name=\"final_yaw_\" value=\""<< goal_state_(2) <<"\"/>"<<std::endl;
+        //
+        //   std::cout<<"plan_start_state_VAJ: "<<plan_start_state_VAJ.transpose()<<std::endl;
+        //   std::cout<<"plan_start_state_OAJ: "<<plan_start_state_OAJ.transpose()<<std::endl;
+        //
+        //   ROS_INFO("<arg name=\"start_x_\" value=\"%f\"/>", plan_start_state_XYTheta(0));
+        //   ROS_INFO("<arg name=\"start_y_\" value=\"%f\"/>", plan_start_state_XYTheta(1));
+        //   ROS_INFO("<arg name=\"start_yaw_\" value=\"%f\"/>", plan_start_state_XYTheta(2));
+        //   ROS_INFO("<arg name=\"final_x_\" value=\"%f\"/>", goal_state_(0));
+        //   ROS_INFO("<arg name=\"final_y_\" value=\"%f\"/>", goal_state_(1));
+        //   ROS_INFO("<arg name=\"final_yaw_\" value=\"%f\"/>", goal_state_(2));
+        //
+        //   ROS_INFO_STREAM("plan_start_state_VAJ: " << plan_start_state_VAJ.transpose());
+        //   ROS_INFO_STREAM("plan_start_state_OAJ: " << plan_start_state_OAJ.transpose());
+        // }
 
         // front end
         ros::Time astar_start_time = ros::Time::now();
@@ -282,10 +250,9 @@ class PlanManager
         MPCPathPub(plan_start_time_);
 
         Traj_total_time_ = msplanner_->final_traj_.getTotalDuration();
-      }
 
       if((ros::Time::now() - Traj_start_time_).toSec() >= Traj_total_time_){
-        state_machine_ = StateMachine::IDLE;
+        ROS_INFO("Reach the goal !!!");
         have_goal_ = false;
       }
 

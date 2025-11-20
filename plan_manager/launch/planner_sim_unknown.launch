@@ -45,6 +45,7 @@
   <!-- Whether to use the standard differential model -->
   <arg name="if_standard_diff_" value="true"/>
 
+  <node pkg="rostopic" type="rostopic" name="fake_map_pub" args="pub -r 1 /map nav_msgs/OccupancyGrid '{header: {seq: 0, stamp: {secs: 0, nsecs: 0}, frame_id: 'world'}, info: {map_load_time: {secs: 0, nsecs: 0}, resolution: 1.0, width: 100, height: 100, origin: {position: {x: -50.0, y: -50.0, z: 0.0}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}}, data: [0,0,0,0]}'" />
   
   <node name="global_planning" pkg="plan_manager" type="global_planning" output="screen">
     <rosparam file="$(find front_end)/config/jps$(arg velocity_suffix).yaml" command="load"/>
