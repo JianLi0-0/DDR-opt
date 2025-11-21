@@ -459,11 +459,24 @@ void MpcController::solveMPCV(void)
     lowerBound.resize(nc);
     upperBound.resize(nc);
     linearMatrix.resize(nc, nx);
-    for (int i=0; i<mx; i+=2)
+    
+    // Calculate total arc length and remaining arc length at each prediction step
+    double total_arc_length = traj_.getTotalLength();
+    double t_cur = ros::Time::now().toSec() - start_time;
+    
+    for (int i=0, j=delay_num; i<mx; i+=2, j++)
     {
-        lowerBound[i] = -max_speed;
+        // Calculate the time for this prediction step
+        double pred_t = std::min(t_cur + (j - delay_num + 1) * dt, traj_duration);
+        double pred_arc_length = traj_.getArcLength(pred_t);
+        double remaining_arc_length = total_arc_length - pred_arc_length;
+        
+        // If remaining arc length < 1.5m, set max speed to 0
+        double v_max = (remaining_arc_length < 1.5) ? 0.0 : max_speed;
+        
+        lowerBound[i] = -v_max;
         lowerBound[i+1] = -max_omega;
-        upperBound[i] = max_speed;
+        upperBound[i] = v_max;
         upperBound[i+1] = max_omega;
         linearMatrix.insert(i, dimx+i) = 1;
         linearMatrix.insert(i+1, dimx+i+1) = 1;

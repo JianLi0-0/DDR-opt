@@ -1257,6 +1257,149 @@ std::vector<Eigen::Vector3d> MSPlanner::get_the_predicted_state_and_path(const d
     return path;
 }
 
+double MSPlanner::get_the_nearest_state(const Eigen::Vector3d &current_pos, Eigen::Vector3d& XYTheta, Eigen::Vector3d& VAJ, Eigen::Vector3d& OAJ){
+    double total_duration = final_traj_.getTotalDuration();
+    if(total_duration <= 0.0){
+        ROS_WARN("Trajectory duration is zero or negative!");
+        return 0.0;
+    }
+
+    // Helper function to compute XY position at a given time
+    auto computeXYPosition = [&](double t) -> Eigen::Vector2d {
+        Eigen::Vector3d pos_temp = final_initStateXYTheta_;
+        double step = trajPredictResolution_;
+        double halfstep = step / 2.0;
+        double step1_6 = step / 6.0;
+
+        int sequence_num = floor(t / step);
+        double left_time = t - sequence_num * step;
+
+        Eigen::Vector2d p1, p2, p3, v1, v2, v3;
+        p3 = final_traj_.getPos(0.0);
+        v3 = final_traj_.getVel(0.0);
+        
+        for(int i=0; i<sequence_num; ++i){
+            p1 = p3; v1 = v3;
+            p2 = final_traj_.getPos(i * step + halfstep);
+            v2 = final_traj_.getVel(i * step + halfstep);
+            p3 = final_traj_.getPos(i * step + step);
+            v3 = final_traj_.getVel(i * step + step);
+            
+            if(if_standard_diff_){
+                pos_temp.x() += step1_6 * (v1.y()*cos(p1.x()) + 4.0*v2.y()*cos(p2.x()) + v3.y()*cos(p3.x()));
+                pos_temp.y() += step1_6 * (v1.y()*sin(p1.x()) + 4.0*v2.y()*sin(p2.x()) + v3.y()*sin(p3.x()));
+            }
+            else{
+                double x1 = v1.y()*cos(p1.x()) + v1.x() * ICR_.z() * sin(p1.x());
+                double x2 = v2.y()*cos(p2.x()) + v2.x() * ICR_.z() * sin(p2.x());
+                double x3 = v3.y()*cos(p3.x()) + v3.x() * ICR_.z() * sin(p3.x());
+
+                double y1 = v1.y()*sin(p1.x()) - v1.x() * ICR_.z() * cos(p1.x());
+                double y2 = v2.y()*sin(p2.x()) - v2.x() * ICR_.z() * cos(p2.x());
+                double y3 = v3.y()*sin(p3.x()) - v3.x() * ICR_.z() * cos(p3.x());
+
+                pos_temp.x() += step1_6 * (x1 + 4.0*x2 + x3);
+                pos_temp.y() += step1_6 * (y1 + 4.0*y2 + y3);
+            }
+        }
+
+        if(left_time > 1e-6){
+            step1_6 = left_time/6.0;
+            p1 = p3; v1 = v3;
+            p2 = final_traj_.getPos(t - left_time / 2.0);
+            v2 = final_traj_.getVel(t - left_time / 2.0);
+            p3 = final_traj_.getPos(t);
+            v3 = final_traj_.getVel(t);
+
+            if(if_standard_diff_){
+                pos_temp.x() += step1_6 * (v1.y()*cos(p1.x()) + 4.0*v2.y()*cos(p2.x()) + v3.y()*cos(p3.x()));
+                pos_temp.y() += step1_6 * (v1.y()*sin(p1.x()) + 4.0*v2.y()*sin(p2.x()) + v3.y()*sin(p3.x()));
+            }
+            else{
+                double x1 = v1.y()*cos(p1.x()) + v1.x() * ICR_.z() * sin(p1.x());
+                double x2 = v2.y()*cos(p2.x()) + v2.x() * ICR_.z() * sin(p2.x());
+                double x3 = v3.y()*cos(p3.x()) + v3.x() * ICR_.z() * sin(p3.x());
+
+                double y1 = v1.y()*sin(p1.x()) - v1.x() * ICR_.z() * cos(p1.x());
+                double y2 = v2.y()*sin(p2.x()) - v2.x() * ICR_.z() * cos(p2.x());
+                double y3 = v3.y()*sin(p3.x()) - v3.x() * ICR_.z() * cos(p3.x());
+
+                pos_temp.x() += step1_6 * (x1 + 4.0*x2 + x3);
+                pos_temp.y() += step1_6 * (y1 + 4.0*y2 + y3);
+            }
+        }
+
+        return Eigen::Vector2d(pos_temp.x(), pos_temp.y());
+    };
+
+    // Step 1: Coarse search with larger step size
+    double coarse_step = 0.1; // Adjust based on trajectory characteristics
+    int num_samples = std::max(10, static_cast<int>(total_duration / coarse_step));
+    coarse_step = total_duration / num_samples;
+    
+    double min_dist = std::numeric_limits<double>::max();
+    double best_time = 0.0;
+    
+    for(int i = 0; i <= num_samples; ++i){
+        double t = i * coarse_step;
+        if(t > total_duration) t = total_duration;
+        
+        Eigen::Vector2d traj_pos = computeXYPosition(t);
+        double dist = (traj_pos - current_pos.head<2>()).norm();
+        
+        if(dist < min_dist){
+            min_dist = dist;
+            best_time = t;
+        }
+    }
+
+    // Step 2: Golden section search for precise localization
+    const double phi = (1.0 + sqrt(5.0)) / 2.0; // Golden ratio
+    const double resphi = 2.0 - phi; // 1/phi
+    const double tol = 1e-4; // Tolerance for convergence
+    
+    // Define search interval around the coarse best_time
+    double a = std::max(0.0, best_time - coarse_step);
+    double b = std::min(total_duration, best_time + coarse_step);
+    
+    // Precompute first two interior points
+    double x1 = a + resphi * (b - a);
+    double x2 = b - resphi * (b - a);
+    
+    Eigen::Vector2d pos_x1 = computeXYPosition(x1);
+    Eigen::Vector2d pos_x2 = computeXYPosition(x2);
+    double f1 = (pos_x1 - current_pos.head<2>()).squaredNorm();
+    double f2 = (pos_x2 - current_pos.head<2>()).squaredNorm();
+    
+    // Golden section search iteration
+    while(fabs(b - a) > tol){
+        if(f1 < f2){
+            b = x2;
+            x2 = x1;
+            f2 = f1;
+            x1 = a + resphi * (b - a);
+            pos_x1 = computeXYPosition(x1);
+            f1 = (pos_x1 - current_pos.head<2>()).squaredNorm();
+        }
+        else{
+            a = x1;
+            x1 = x2;
+            f1 = f2;
+            x2 = b - resphi * (b - a);
+            pos_x2 = computeXYPosition(x2);
+            f2 = (pos_x2 - current_pos.head<2>()).squaredNorm();
+        }
+    }
+    
+    // Final best time is the midpoint of the interval
+    double nearest_time = (a + b) / 2.0;
+    
+    // Compute the state at the nearest time using get_the_predicted_state
+    get_the_predicted_state(nearest_time, XYTheta, VAJ, OAJ);
+    
+    return nearest_time;
+}
+
 double MSPlanner::costFunctionCallbackPath(void *ptr,
                                          const Eigen::VectorXd &x,
                                          Eigen::VectorXd &g){

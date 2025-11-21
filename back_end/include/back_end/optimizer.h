@@ -273,6 +273,8 @@ public:
                                                                   const Eigen::Vector3d &start_XYTheta, 
                                                                   Eigen::Vector3d &XYTheta, bool &if_forward);
 
+    double get_the_nearest_state(const Eigen::Vector3d &current_pos, Eigen::Vector3d& XYTheta, Eigen::Vector3d& VAJ, Eigen::Vector3d& OAJ);
+
     inline double normlize_angle(double angle);
 
     template<typename T>

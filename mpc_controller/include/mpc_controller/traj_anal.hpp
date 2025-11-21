@@ -18,6 +18,9 @@ class TrajAnal{
         std::vector<Eigen::Vector4d> state_sequence_;
         double state_seq_res_;
 
+        // Arc length sequence: cumulative arc length at each state in state_sequence_
+        std::vector<double> arc_length_sequence_;
+
         // The resolution for approximating the position using integration. state_seq_res_ must be an integer multiple of Integral_appr_resInt_
         int Integral_appr_resInt_;
 
@@ -49,6 +52,7 @@ class TrajAnal{
 
         void getSeq(){
             state_sequence_.clear();
+            arc_length_sequence_.clear();
 
             double Integral_appr_res = state_seq_res_ / Integral_appr_resInt_;
             double half_Integral_appr_res = Integral_appr_res / 2.0;
@@ -56,6 +60,8 @@ class TrajAnal{
 
             Eigen::Vector3d current_state = start_state_;
             state_sequence_.emplace_back(current_state.x(), current_state.y(), current_state.z(), 0.0);
+            arc_length_sequence_.emplace_back(0.0);  // Initial arc length is 0
+            double cumulative_arc_length = 0.0;
 
             int sequence_num = floor(minco_traj_.getTotalDuration() / Integral_appr_res);
 
@@ -71,12 +77,17 @@ class TrajAnal{
 
                 current_state.x() += Integral_appr_res_1_6 * (v1.y()*cos(p1.x()) + 4.0*v2.y()*cos(p2.x()) + v3.y()*cos(p3.x()));
                 current_state.y() += Integral_appr_res_1_6 * (v1.y()*sin(p1.x()) + 4.0*v2.y()*sin(p2.x()) + v3.y()*sin(p3.x()));
+                
+                // Calculate arc length using Simpson's rule on velocity magnitude
+                cumulative_arc_length += Integral_appr_res_1_6 * (v1.norm() + 4.0*v2.norm() + v3.norm());
+                
                 if(i%Integral_appr_resInt_ == Integral_appr_resInt_ - 1){
                     state_sequence_.emplace_back(current_state.x(), current_state.y(), p3.x(), (i+1) * Integral_appr_res);
+                    arc_length_sequence_.emplace_back(cumulative_arc_length);
                 }
             }
 
-            
+
         }
 
         std::vector<Eigen::Vector4d> get_state_sequence_(){
@@ -112,6 +123,31 @@ class TrajAnal{
 
         Eigen::Vector2d getAstate(const double& t){
             return minco_traj_.getAcc(t);
+        }
+
+        double getArcLength(const double& t){
+            int index = floor(t / state_seq_res_);
+            double floor_t = index * state_seq_res_;
+            double diff_t = t - floor_t;
+            
+            // Get the cumulative arc length up to the index
+            double arc_length = arc_length_sequence_[index];
+            
+            // If we need to calculate the remaining segment
+            if(diff_t > 1e-6){
+                // Use Simpson's rule to integrate velocity magnitude over the remaining time
+                Eigen::Vector2d v1 = minco_traj_.getVel(floor_t);
+                Eigen::Vector2d v2 = minco_traj_.getVel(floor_t + diff_t/2.0);
+                Eigen::Vector2d v3 = minco_traj_.getVel(t);
+                
+                arc_length += diff_t/6.0 * (v1.norm() + 4.0*v2.norm() + v3.norm());
+            }
+            
+            return arc_length;
+        }
+
+        double getTotalLength(){
+            return arc_length_sequence_.back();
         }
 };
 

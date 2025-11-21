@@ -78,6 +78,7 @@
     <remap from="~local_pointcloud" to="/laser_simulator/local_pointcloud"/>
     <remap from="~odom" to="$(arg odom_topic)"/>
     <remap from="~traj" to="$(arg traj_topic)"/>
+    <remap from="~cmd" to="$(arg cmd_topic)"/>
 
     <!-- Observation parameters -->
     <param name="hrz_limited" value="$(arg hrz_limited_)"/>

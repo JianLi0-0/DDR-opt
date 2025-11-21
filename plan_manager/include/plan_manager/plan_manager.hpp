@@ -37,6 +37,7 @@ class PlanManager
 
     ros::Subscriber goal_sub_;
     ros::Subscriber current_state_sub_;
+    ros::Subscriber cmd_sub_;
     ros::Timer main_thread_timer_;
     ros::Publisher cmd_pub_;
     ros::Publisher mpc_polynome_pub_;
@@ -48,6 +49,8 @@ class PlanManager
     Eigen::Vector3d current_state_XYTheta_;
     Eigen::Vector3d current_state_VAJ_;
     Eigen::Vector3d current_state_OAJ_;
+    Eigen::Vector3d received_VAJ_;
+    Eigen::Vector3d received_OAJ_;
 
     double plan_start_time_;
     Eigen::Vector3d plan_start_state_XYTheta;
@@ -85,6 +88,7 @@ class PlanManager
       jps_planner_ = std::make_shared<JPS::JPSPlanner>(sdfmap_, nh_);
 
       goal_sub_ = nh_.subscribe<geometry_msgs::PointStamped>("/clicked_point",1,&PlanManager::goal_callback,this);
+      cmd_sub_ = nh_.subscribe<carstatemsgs::CarState>("/simulation/PoseSub",1,&PlanManager::CmdCallback,this);
       // current_state_sub_ = nh_.subscribe<carstatemsgs::CarState>("/simulation/PosePub",1,&PlanManager::GeometryCallback,this);
       current_state_sub_ = nh_.subscribe<nav_msgs::Odometry>("odom",1,&PlanManager::GeometryCallback,this);
       main_thread_timer_ = nh_.createTimer(ros::Duration(0.1),&PlanManager::MainThread, this);
@@ -134,11 +138,18 @@ class PlanManager
     //   current_time_ = msg->Header.stamp;
     // }
 
+  void CmdCallback(const carstatemsgs::CarState::ConstPtr &msg){
+      current_state_VAJ_ << msg->v, 0, 0;
+      current_state_OAJ_ << msg->omega, 0, 0;
+      ROS_INFO_STREAM("received_VAJ_: " << received_VAJ_.transpose());
+      ROS_INFO_STREAM("received_OAJ_: " << received_OAJ_.transpose());
+    }
+
     void GeometryCallback(const nav_msgs::Odometry::ConstPtr &msg){
       have_geometry_ = true;
       current_state_XYTheta_ << msg->pose.pose.position.x, msg->pose.pose.position.y, tf::getYaw(msg->pose.pose.orientation);
-      current_state_VAJ_ << 0.0, 0.0, 0.0;
-      current_state_OAJ_ << 0.0, 0.0, 0.0;
+      // current_state_VAJ_ << 0.0, 0.0, 0.0;
+      // current_state_OAJ_ << 0.0, 0.0, 0.0;
       current_time_ = msg->header.stamp;
     }
 
@@ -184,8 +195,13 @@ class PlanManager
         plan_start_state_OAJ = current_state_OAJ_;
       }
       else {
-        predicted_traj_start_time_ = current + max_replan_time_ - plan_start_time_;
-        msplanner_->get_the_predicted_state(predicted_traj_start_time_, plan_start_state_XYTheta, plan_start_state_VAJ, plan_start_state_OAJ);
+        // Use get_the_nearest_state to find the closest point on trajectory to current position
+        double nearest_time = msplanner_->get_the_nearest_state(current_state_XYTheta_, plan_start_state_XYTheta, plan_start_state_VAJ, plan_start_state_OAJ);
+        // plan_start_state_VAJ(0) = current_state_VAJ_(0);
+        // plan_start_state_OAJ(0) = current_state_OAJ_(0);
+        // plan_start_state_VAJ << 0.0, 0.0, 0.0;
+        // plan_start_state_OAJ << 0.0, 0.0, 0.0;
+        predicted_traj_start_time_ = nearest_time;
       }
 
         ROS_INFO("\033[32;40m \n\n\n\n\n-------------------------------------start new plan------------------------------------------ \033[0m");
@@ -237,14 +253,14 @@ class PlanManager
         msplanner_->mincoPointPub(msplanner_->final_traj_, plan_start_state_XYTheta, visualizer_->mincoPointMarker, Eigen::Vector3d(239, 41, 41));
         
         // for replan
-        if(plan_start_time_ < 0){
+        // if(plan_start_time_ < 0){
           Traj_start_time_ = ros::Time::now();
           plan_start_time_ = Traj_start_time_.toSec();
-        }
-        else{
-          plan_start_time_ = current + max_replan_time_;
-          Traj_start_time_ = ros::Time(plan_start_time_);
-        }
+        // }
+        // else{
+        //   plan_start_time_ = current + max_replan_time_;
+        //   Traj_start_time_ = ros::Time(plan_start_time_);
+        // }
         
 
         MPCPathPub(plan_start_time_);
